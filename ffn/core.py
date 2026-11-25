@@ -3387,12 +3387,20 @@ def calc_deflated_sharpe_ratio(returns, trial_sharpe_ratios, rf=0.0, nperiods=No
         * float -- probability [0, 1] that the selected trial's Sharpe ratio
           is greater than zero, or ``NaN`` when the statistic is undefined.
 
+    Raises:
+        * ValueError: If nperiods cannot be inferred and is needed to convert
+            annualized trial Sharpe ratios or a non-zero scalar risk-free rate.
+            Supply nperiods explicitly, or pass per-period trial Sharpe ratios
+            with annualized_trials=False.
+
     """
     if nperiods is None:
         nperiods = infer_nperiods(returns)
 
     # Work in per-period terms; annualization cancels in the ratio below
     sr = calc_sharpe(returns, rf=rf, nperiods=nperiods, annualize=False)
+    if annualized_trials and nperiods is None:
+        raise ValueError("Cannot infer return frequency to deannualize trial Sharpe ratios. Pass nperiods or set annualized_trials=False.")
     # A finite payload is still unavailable when masked; np.asarray loses the mask.
     # Only inspect masked arrays: pandas Series can expose a "_mask" index label.
     if (np.ma.isMaskedArray(trial_sharpe_ratios) and np.ma.is_masked(trial_sharpe_ratios)) or np.any(pd.isna(trial_sharpe_ratios)):
@@ -3402,7 +3410,7 @@ def calc_deflated_sharpe_ratio(returns, trial_sharpe_ratios, rf=0.0, nperiods=No
         return np.nan
     trials = pd.Series(trial_values)
     if annualized_trials:
-        trials = trials / np.sqrt(nperiods or 1)
+        trials = trials / np.sqrt(nperiods)
 
     excess_returns = returns.to_excess_returns(rf, nperiods=nperiods)
 
