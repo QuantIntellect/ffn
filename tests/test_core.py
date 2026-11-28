@@ -7336,6 +7336,56 @@ def test_infer_nperiods_distinguishes_subsecond_aliases_from_month_start():
     assert ffn.core.infer_nperiods(month_start) == 12
 
 
+def _has_pandas_option(name):
+    try:
+        pd.get_option(name)
+    except (KeyError, AttributeError):  # pandas' OptionError subclasses both
+        return False
+    return True
+
+
+def _frequency_inference_series():
+    business = pd.Series(np.linspace(-0.01, 0.02, 60), index=pd.bdate_range("2023-01-02", periods=60))
+    return [
+        business,
+        pd.Series(np.linspace(-0.01, 0.02, 30), index=pd.date_range("2023-01-01", periods=30, freq="W")),
+        pd.Series(np.linspace(-0.01, 0.02, 30), index=pd.date_range("2023-01-31", periods=30, freq=pd.offsets.MonthEnd())),
+        pd.Series(np.linspace(-0.01, 0.02, 30), index=pd.date_range("2023-01-02", periods=30, freq="30min")),
+        pd.Series(np.linspace(-0.01, 0.02, 30), index=pd.date_range("2023-01-01", periods=30, freq="D")[::-1]),
+    ]
+
+
+@mark.skipif(not _has_pandas_option("future.infer_freq_returns_offset"), reason="the option was added in pandas 3.1")
+def test_frequency_inference_accepts_offsets_from_pd_infer_freq():
+    # pandas 4 returns a DateOffset from pd.infer_freq, and pandas 3.1 does with this option.
+    series = _frequency_inference_series()
+    no_freq = pd.Series(series[0].values, index=pd.DatetimeIndex(series[0].index.values))
+    expected = [(ffn.core.infer_freq(s), ffn.core.infer_nperiods(s), s.calc_sharpe()) for s in series]
+    expected_prices = no_freq.to_price_index()
+
+    with pd.option_context("future.infer_freq_returns_offset", True):
+        assert not isinstance(pd.infer_freq(series[0].index), str)
+        assert [(ffn.core.infer_freq(s), ffn.core.infer_nperiods(s), s.calc_sharpe()) for s in series] == expected
+        pd.testing.assert_series_equal(no_freq.to_price_index(), expected_prices)
+
+    assert [nperiods for _, nperiods, _ in expected] == [252, 52, 12, 252 * 48, 252]
+
+
+def test_frequency_inference_does_not_warn_about_offset_results():
+    # pandas 3.1 warns on every pd.infer_freq call whose result is a string.
+    series = _frequency_inference_series()
+    no_freq = pd.Series(series[0].values, index=pd.DatetimeIndex(series[0].index.values))
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        for s in series:
+            ffn.core.infer_nperiods(s)
+            s.calc_sharpe()
+        no_freq.to_price_index()
+
+    assert [str(w.message) for w in caught if "BaseOffset" in str(w.message)] == []
+
+
 def test_calc_sharpe_annualizes_business_daily():
     # A business-day price series is the ordinary case for equities, and its
     # Sharpe ratio must be scaled by sqrt(252) like a calendar-daily one.

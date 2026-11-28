@@ -2,6 +2,7 @@ import copy
 import itertools
 import os
 import random
+import warnings
 from collections import defaultdict as _defaultdict
 from math import comb as _comb
 
@@ -1335,7 +1336,7 @@ def to_price_index(returns, start=100):
     if isinstance(cp.index, pd.DatetimeIndex):
         frequency = cp.index.freq
         if frequency is None and len(cp.index) >= 3:
-            frequency = pd.infer_freq(cp.index)
+            frequency = _infer_freq_str(cp.index)
         if frequency is not None:
             start_index -= pd.tseries.frequencies.to_offset(frequency)
         elif len(cp.index) > 1:
@@ -2941,12 +2942,26 @@ def infer_freq(data):
         # Older pandas interprets numeric row labels as nanosecond timestamps.
         if data.index.inferred_type in ("integer", "floating", "mixed-integer-float"):
             return None
-        if _PANDAS_TWO:
-            return pd.infer_freq(data.index)
-        else:
-            return pd.infer_freq(data.index, warn=False)
+        return _infer_freq_str(data.index)
     except (AttributeError, TypeError, ValueError):
         return None
+
+
+def _infer_freq_str(index):
+    """
+    Return ``pd.infer_freq(index)`` as a string, or None.
+
+    pandas 3.1 warns that ``pd.infer_freq`` will return a ``DateOffset`` instead of a
+    string, and pandas 4 (or ``pd.set_option("future.infer_freq_returns_offset", True)``)
+    does. ffn parses the string, so take either and return the offset's ``freqstr``.
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="A future version of pandas will return a BaseOffset")
+        if _PANDAS_TWO:
+            freq = pd.infer_freq(index)
+        else:
+            freq = pd.infer_freq(index, warn=False)
+    return getattr(freq, "freqstr", freq)
 
 
 # Number of periods in a year for offset aliases whose length is fixed.
