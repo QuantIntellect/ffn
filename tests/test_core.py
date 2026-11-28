@@ -5037,6 +5037,36 @@ def test_calc_deflated_sharpe_ratio_masked_trials_preserve_riskfree_frequency_er
         returns.calc_deflated_sharpe_ratio(trials, rf=0.03)
 
 
+def test_calc_deflated_sharpe_ratio_requires_frequency_for_annualized_trials(df):
+    """Annualized trial Sharpe ratios need the return frequency, as calc_sharpe does."""
+    # Holidays leave the fixture's trading calendar without an inferable frequency.
+    returns = df["AAPL"].to_returns().dropna()
+    assert ffn.core.infer_nperiods(returns) is None
+    trial_sharpes = pd.Series([0.5, 1.0, 1.5, 0.2, returns.calc_sharpe(nperiods=252)])
+
+    # Treating annualized trials as per-period ones would inflate the hurdle sqrt(252)-fold.
+    with raises(ValueError, match="nperiods.*annualized_trials=False"):
+        ffn.calc_deflated_sharpe_ratio(returns, trial_sharpes)
+    with raises(ValueError, match="nperiods.*annualized_trials=False"):
+        returns.calc_deflated_sharpe_ratio(trial_sharpes)
+    # Masked trials don't hide the error, and a scalar risk-free rate's error comes first.
+    masked = np.ma.array(trial_sharpes.to_numpy(), mask=True)
+    with raises(ValueError, match="nperiods.*annualized_trials=False"):
+        ffn.calc_deflated_sharpe_ratio(returns, masked)
+    with raises(ValueError, match="rf != 0"):
+        ffn.calc_deflated_sharpe_ratio(returns, masked, rf=0.03)
+
+    # Independently evaluating the documented formula with 252 periods per year gives
+    # this probability, as do the same returns on an inferable business-day calendar.
+    expected = 0.9592759761601473
+    regular = pd.Series(returns.to_numpy(), index=pd.bdate_range(returns.index[0], periods=len(returns)))
+    assert ffn.calc_deflated_sharpe_ratio(returns, trial_sharpes, nperiods=252) == approx(expected, rel=1e-9)
+    assert ffn.calc_deflated_sharpe_ratio(regular, trial_sharpes) == approx(expected, rel=1e-9)
+    # Per-period trial Sharpe ratios need no frequency.
+    per_period = trial_sharpes / np.sqrt(252)
+    assert ffn.calc_deflated_sharpe_ratio(returns, per_period, annualized_trials=False) == approx(expected, rel=1e-9)
+
+
 def test_calc_deflated_sharpe_ratio_nonfinite_calculated_trials():
     trial_returns = pd.DataFrame(
         {
@@ -5179,14 +5209,14 @@ def test_calc_deflated_sharpe_ratio_zero_dispersion():
         for n in (3, 10, 250, 5000):
             flat = pd.Series([value] * n)
             assert np.isnan(
-                ffn.calc_deflated_sharpe_ratio(flat, sharpes)
+                ffn.calc_deflated_sharpe_ratio(flat, sharpes, nperiods=252)
             ), f"leaked at value={value}, n={n}"
-    assert np.isnan(ffn.calc_deflated_sharpe_ratio(pd.Series([0.0] * 250), sharpes))
+    assert np.isnan(ffn.calc_deflated_sharpe_ratio(pd.Series([0.0] * 250), sharpes, nperiods=252))
 
     # The guard is relative to the scale of the data: a real but very quiet series
     # still gets a number.
     quiet = pd.Series(np.random.default_rng(1).normal(0, 1e-8, 250))
-    assert 0 <= ffn.calc_deflated_sharpe_ratio(quiet, sharpes) <= 1
+    assert 0 <= ffn.calc_deflated_sharpe_ratio(quiet, sharpes, nperiods=252) <= 1
 
     # A long, quiet series around a nonzero mean still has real dispersion. The
     # zero-dispersion threshold must not grow with the sample size and swallow it.
