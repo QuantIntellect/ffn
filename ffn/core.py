@@ -24,7 +24,6 @@ from tabulate import tabulate
 from . import utils
 from .utils import fmtn, fmtp, fmtpn, get_freq_name
 
-_PANDAS_TWO = Version(pd.__version__) >= Version("2")
 _PANDAS_TWO_TWO = Version(pd.__version__) >= Version("2.2")
 
 if _PANDAS_TWO_TWO:
@@ -2957,10 +2956,7 @@ def _infer_freq_str(index):
     """
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="A future version of pandas will return a BaseOffset")
-        if _PANDAS_TWO:
-            freq = pd.infer_freq(index)
-        else:
-            freq = pd.infer_freq(index, warn=False)
+        freq = pd.infer_freq(index)
     return getattr(freq, "freqstr", freq)
 
 

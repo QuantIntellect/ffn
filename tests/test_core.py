@@ -7371,8 +7371,9 @@ def test_frequency_inference_accepts_offsets_from_pd_infer_freq():
     assert [nperiods for _, nperiods, _ in expected] == [252, 52, 12, 252 * 48, 252]
 
 
-def test_frequency_inference_does_not_warn_about_offset_results():
+def test_frequency_inference_does_not_warn():
     # pandas 3.1 warns on every pd.infer_freq call whose result is a string.
+    # pandas 1.5 also warns when the deprecated warn argument is passed.
     series = _frequency_inference_series()
     no_freq = pd.Series(series[0].values, index=pd.DatetimeIndex(series[0].index.values))
 
@@ -7383,7 +7384,7 @@ def test_frequency_inference_does_not_warn_about_offset_results():
             s.calc_sharpe()
         no_freq.to_price_index()
 
-    assert [str(w.message) for w in caught if "BaseOffset" in str(w.message)] == []
+    assert [str(w.message) for w in caught] == []
 
 
 def test_calc_sharpe_annualizes_business_daily():
